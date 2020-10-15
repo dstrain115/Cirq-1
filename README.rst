@@ -61,7 +61,22 @@ A simple example to get you up and running:
   print("Results:")
   print(result)
 
-Example output:
+  import cirq
+  import sympy
+
+  sampler = cirq.google.get_engine_sampler(
+      project_id=PROJECT_ID,
+      processor_id=PROCESSOR_ID,
+      gate_set_name='sqrt_iswap')
+
+  circuit = cirq.Circuit(
+      cirq.XPowGate(exponent=sympy.Symbol('t'))(cirq.GridQubit(5,4)),
+      cirq.measure(cirq.GridQubit(5,4), key='meas'))
+  rabi_sweep = cirq.Linspace('t', start=0, stop=1, length=20)
+
+  results = sampler.run_sweep(circuit, repetitions=1000,params=rabi_sweep)
+  for t in range(20):
+    print(results[t].histogram(key='meas'))
 
 .. code-block::
 
