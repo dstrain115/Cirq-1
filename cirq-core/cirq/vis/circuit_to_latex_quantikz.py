@@ -526,8 +526,14 @@ class CircuitToQuantikz:
         # Apply special Quantikz commands for specific gate types
         if isinstance(gate, ops.MeasurementGate):
             lbl = gate.key.replace("_", r"\_") if gate.key else ""
-            for i in q_indices:
-                output[i] = f"\\meter{final_style_tikz}{{{lbl}}}"
+            min_q = min(self.qubit_to_index[q] for q in op.qubits)
+            for idx, i in enumerate(q_indices):
+                if idx == 0:
+                    output[i] = f"\\meter{final_style_tikz}{{{lbl}}}"
+                else:
+                    q0 = q_indices[idx - 1]
+                    q1 = q_indices[idx]
+                    output[i] = f"\\meter{final_style_tikz}{{}} \\vqw{{{q0-q1}}}"
             return output
         if isinstance(gate, ops.CNotPowGate) and hasattr(gate, "exponent") and gate.exponent == 1:
             c, t = (
