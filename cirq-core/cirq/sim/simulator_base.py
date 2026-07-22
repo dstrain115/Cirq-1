@@ -161,9 +161,15 @@ class SimulatorBase(
         return protocols.has_unitary(val)
 
     def _base_iterator(
-        self, circuit: cirq.AbstractCircuit, qubits: tuple[cirq.Qid, ...], initial_state: Any
+        self,
+        circuit: cirq.AbstractCircuit,
+        qubits: tuple[cirq.Qid, ...],
+        initial_state: Any,
+        param_resolver: cirq.ParamResolver | None = None,
     ) -> Iterator[TStepResultBase]:
-        sim_state = self._create_simulation_state(initial_state, qubits)
+        sim_state = self._create_simulation_state(
+            initial_state, qubits, param_resolver=param_resolver
+        )
         return self._core_iterator(circuit, sim_state)
 
     def _core_iterator(
@@ -206,8 +212,11 @@ class SimulatorBase(
                         if all_measurements_are_terminal:
                             continue
 
+                    # Resolve parameters on the fly
+                    resolved_op = protocols.resolve_parameters(op, sim_state.param_resolver)
+
                     # Simulate the operation
-                    protocols.act_on(op, sim_state)
+                    protocols.act_on(resolved_op, sim_state)
                 except TypeError:
                     raise TypeError(f"{self.__class__.__name__} doesn't support {op!r}")
 
@@ -218,10 +227,14 @@ class SimulatorBase(
     ) -> dict[str, np.ndarray]:
         """See definition in `cirq.SimulatesSamples`."""
         param_resolver = param_resolver or study.ParamResolver({})
-        resolved_circuit = protocols.resolve_parameters(circuit, param_resolver)
-        check_all_resolved(resolved_circuit)
+        has_dynamic = any(isinstance(op, ops.SetVariable) for op in circuit.all_operations())
+        if has_dynamic:
+            resolved_circuit = circuit
+        else:
+            resolved_circuit = protocols.resolve_parameters(circuit, param_resolver)
+            check_all_resolved(resolved_circuit)
         qubits = tuple(sorted(resolved_circuit.all_qubits()))
-        sim_state = self._create_simulation_state(0, qubits)
+        sim_state = self._create_simulation_state(0, qubits, param_resolver=param_resolver)
 
         prefix, general_suffix = (
             split_into_matching_protocol_then_general(resolved_circuit, self._can_be_in_run_prefix)
@@ -320,9 +333,14 @@ class SimulatorBase(
         yield from super().simulate_sweep_iter(suffix, params, qubit_order, sim_state)
 
     def _create_simulation_state(
-        self, initial_state: Any, qubits: Sequence[cirq.Qid]
+        self,
+        initial_state: Any,
+        qubits: Sequence[cirq.Qid],
+        param_resolver: cirq.ParamResolver | None = None,
     ) -> SimulationStateBase[TSimulationState]:
         if isinstance(initial_state, SimulationStateBase):
+            if param_resolver is not None:
+                initial_state.param_resolver = param_resolver
             return initial_state
 
         classical_data = value.ClassicalDataDictionaryStore()
@@ -344,12 +362,18 @@ class SimulatorBase(
                     args_map[q] = args
             args_map[None] = self._create_partial_simulation_state(0, (), classical_data)
             return SimulationProductState(
-                args_map, qubits, self._split_untangled_states, classical_data=classical_data
+                args_map,
+                qubits,
+                self._split_untangled_states,
+                classical_data=classical_data,
+                param_resolver=param_resolver,
             )
         else:
-            return self._create_partial_simulation_state(
+            state = self._create_partial_simulation_state(
                 initial_state=initial_state, qubits=qubits, classical_data=classical_data
             )
+            state.param_resolver = param_resolver
+            return state
 
 
 class StepResultBase(

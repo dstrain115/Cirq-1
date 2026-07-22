@@ -36,7 +36,11 @@ class SimulationStateBase(Generic[TSimulationState], metaclass=abc.ABCMeta):
     """An interface for quantum states as targets for operations."""
 
     def __init__(
-        self, *, qubits: Sequence[cirq.Qid], classical_data: cirq.ClassicalDataStore | None = None
+        self,
+        *,
+        qubits: Sequence[cirq.Qid],
+        classical_data: cirq.ClassicalDataStore | None = None,
+        param_resolver: cirq.ParamResolver | None = None,
     ):
         """Initializes the class.
 
@@ -44,9 +48,21 @@ class SimulationStateBase(Generic[TSimulationState], metaclass=abc.ABCMeta):
             qubits: The canonical ordering of qubits.
             classical_data: The shared classical data container for this
                 simulation.
+            param_resolver: The parameter resolver for the simulation.
         """
         self._set_qubits(tuple(qubits))
         self._classical_data = classical_data or value.ClassicalDataDictionaryStore()
+        from cirq.study.resolver import ParamResolver
+
+        self._param_resolver = param_resolver or ParamResolver({})
+
+    @property
+    def param_resolver(self) -> cirq.ParamResolver:
+        return self._param_resolver
+
+    @param_resolver.setter
+    def param_resolver(self, resolver: cirq.ParamResolver):
+        self._param_resolver = resolver
 
     @property
     def qubits(self) -> tuple[cirq.Qid, ...]:
