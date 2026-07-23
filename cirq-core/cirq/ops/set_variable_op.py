@@ -69,7 +69,7 @@ class SetVariable(raw_types.Operation):
         return SetVariable(self._target, resolved_expr)
 
     def _is_parameterized_(self) -> bool:
-        return protocols.is_parameterized(self._expression)
+        return bool(protocols.parameter_names(self._expression))
 
     def _parameter_names_(self) -> Any:
         return protocols.parameter_names(self._expression)
@@ -103,7 +103,10 @@ class SetVariable(raw_types.Operation):
                 name = symbol.base.name
                 key = value.MeasurementKey.parse_serialized(name)
                 if key in sim_state.classical_data.keys():
-                    replacements[symbol] = tuple(sim_state.classical_data.get_digits(key))
+                    digits = sim_state.classical_data.get_digits(key)
+                    idx = int(symbol.indices[0])
+                    if 0 <= idx < len(digits):
+                        replacements[symbol] = digits[idx]
 
         evaluated_value = self._expression.subs(replacements)
         if evaluated_value.is_number:
@@ -119,13 +122,7 @@ class SetVariable(raw_types.Operation):
 
         # Update the parameter resolver in sim_state
         current_params = dict(sim_state.param_resolver.param_dict)
-        if self._target.name in current_params:
-            current_params[self._target.name] = evaluated_value
-        elif self._target in current_params:
-            current_params[self._target] = evaluated_value
-        else:
-            current_params[self._target] = evaluated_value
-
+        current_params[self._target] = evaluated_value
         sim_state.param_resolver = resolver.ParamResolver(current_params)
         return True
 

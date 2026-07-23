@@ -40,7 +40,19 @@ def test_set_variable_repr_and_str():
     b = sympy.Symbol('b')
     op = cirq.SetVariable(a, b + 1)
     assert str(op) == "SetVariable(a, b + 1)"
-    assert repr(op) == "cirq.SetVariable(sympy.Symbol('a'), sympy.Symbol('b') + 1)"
+    assert (
+        repr(op)
+        == "cirq.SetVariable(sympy.Symbol('a'), sympy.Add(sympy.Symbol('b'), sympy.Integer(1)))"
+    )
+
+
+def test_set_variable_parameter_names():
+    a = sympy.Symbol('a')
+    b = sympy.Symbol('b')
+    op = cirq.SetVariable(a, b + 1)
+    assert cirq.parameter_names(op) == {'b'}
+    assert cirq.is_parameterized(op)
+    assert not cirq.is_parameterized(cirq.SetVariable(a, 1.0))
 
 
 def test_set_variable_simulation_constant():
@@ -64,6 +76,15 @@ def test_set_variable_simulation_expression():
     np.testing.assert_allclose(result.final_state_vector, expected_state, atol=1e-6)
 
 
+def test_set_variable_run_simulation():
+    q0 = cirq.LineQubit(0)
+    a = sympy.Symbol('a')
+    circuit = cirq.Circuit(cirq.SetVariable(a, 1), cirq.measure(q0, key='m'))
+    sim = cirq.Simulator()
+    result = sim.run(circuit, repetitions=3)
+    assert len(result.measurements['m']) == 3
+
+
 def test_set_variable_simulation_measurement_dependency():
     q0, q1 = cirq.LineQubit.range(2)
     a = sympy.Symbol('a')
@@ -83,6 +104,60 @@ def test_set_variable_simulation_measurement_dependency():
     # So q1 final state is |1> (up to phase).
     expected_state = cirq.Circuit(cirq.X(q0), cirq.Rx(rads=np.pi).on(q1)).final_state_vector()
     np.testing.assert_allclose(np.abs(result.final_state_vector), np.abs(expected_state), atol=1e-6)
+
+
+def test_set_variable_act_on_edge_cases():
+    a = sympy.Symbol('a')
+    b = sympy.Symbol('b')
+    c = sympy.Symbol('c')
+    q0 = cirq.LineQubit(0)
+
+    # 1. Parameter resolver lookup in _act_on_ (by name or symbol)
+    op = cirq.SetVariable(a, b * 2)
+    state = cirq.StateVectorSimulationState(
+        qubits=[q0], param_resolver=cirq.ParamResolver({'b': 3})
+    )
+    assert op._act_on_(state)
+    assert state.param_resolver.value_of('a') == 6
+
+    state_symbol = cirq.StateVectorSimulationState(
+        qubits=[q0], param_resolver=cirq.ParamResolver({b: 4})
+    )
+    assert op._act_on_(state_symbol)
+    assert state_symbol.param_resolver.value_of(a) == 8
+
+    # 2. Target symbol already in current_params by string name vs symbol
+    op_update = cirq.SetVariable(a, 10)
+    assert op_update._act_on_(state)
+    assert state.param_resolver.value_of('a') == 10
+
+    assert op_update._act_on_(state_symbol)
+    assert state_symbol.param_resolver.value_of(a) == 10
+
+    # 3. Unresolved symbol error
+    op_unresolved = cirq.SetVariable(a, c + 1)
+    empty_state = cirq.StateVectorSimulationState(qubits=[q0])
+    with pytest.raises(ValueError, match="could not be resolved"):
+        op_unresolved._act_on_(empty_state)
+
+    # 4. Expression did not evaluate to a number
+    op_non_numeric = cirq.SetVariable(a, sympy.Symbol('unresolved'))
+    with pytest.raises(ValueError, match="did not evaluate to a number"):
+        op_non_numeric._act_on_(
+            cirq.StateVectorSimulationState(
+                qubits=[q0],
+                param_resolver=cirq.ParamResolver({'unresolved': sympy.Symbol('still_symbol')}),
+            )
+        )
+
+    # 5. Indexed symbol / bitwise measurement in expression
+    q1 = cirq.LineQubit(1)
+    m_base = sympy.IndexedBase('m')
+    op_indexed = cirq.SetVariable(a, m_base[0] + m_base[1])
+    indexed_state = cirq.StateVectorSimulationState(qubits=[q0, q1])
+    indexed_state.classical_data.record_measurement(cirq.MeasurementKey('m'), [1, 0], [q0, q1])
+    assert op_indexed._act_on_(indexed_state)
+    assert indexed_state.param_resolver.value_of('a') == 1
 
 
 def test_set_variable_json():
